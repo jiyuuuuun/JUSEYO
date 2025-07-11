@@ -117,7 +117,7 @@ public class SecurityConfigJuseyo {
                         //요청 카운트
                         .requestMatchers(HttpMethod.GET, "/api/v1/supply/**").hasAnyRole("USER","MANAGER","ADMIN")
 
-                        .anyRequest().authenticated()
+                        .anyRequest().permitAll()
                 )
                 .addFilterBefore(userStatusCheckFilter, UsernamePasswordAuthenticationFilter.class) // UserStatusCheckFilter 추가
                 .addFilterBefore(new JwtAuthenticationFilter(jwtTokenizer,redisService), UsernamePasswordAuthenticationFilter.class)
