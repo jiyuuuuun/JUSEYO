@@ -17,10 +17,12 @@ import com.example.backend.global.exception.BusinessLogicException;
 import com.example.backend.global.exception.ExceptionCode;
 import com.example.backend.global.security.jwt.service.TokenService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.util.StopWatch;
 
 import java.time.Duration;
 import java.time.LocalDate;
@@ -33,12 +35,17 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
-
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class InventoryAnalysisService {
 
-    private final RedisTemplate<String, Object> redisTemplate;
+    @Qualifier("objectRedisTemplate")
+    private final RedisTemplate<String, Object> objectRedisTemplate;
+
+    @Qualifier("rawStringRedisTemplate")
+    private final RedisTemplate<String, String> stringRedisTemplate;
+
     private final ItemRepository itemRepository;
     private final InventoryInRepository inventoryInRepository;
     private final InventoryOutRepository inventoryOutRepository;
@@ -67,12 +74,20 @@ public class InventoryAnalysisService {
     }
 
     public Map<String, CategorySummaryDTO> getCategorySummary() {
+
+        StopWatch sw = new StopWatch();
+        sw.start("getCategorySummary");
+
         Long managementId = getManagementIdFromToken();
         String key = getCategorySummaryKey(managementId);
 
         Map<String, CategorySummaryDTO> cached = (Map<String, CategorySummaryDTO>)
-                redisTemplate.opsForValue().get(key);
-        if (cached != null) return cached;
+                objectRedisTemplate.opsForValue().get(key);
+        if (cached != null) {
+            sw.stop();
+            log.info("📦 [Redis HIT] 카테고리 요약 캐시 응답 시간: {} ms", sw.getTotalTimeMillis());
+            return cached;
+        }
 
         List<Item> items = itemRepository.findAllByManagementDashboardIdAndStatus(managementId, Status.ACTIVE);
 
@@ -86,31 +101,45 @@ public class InventoryAnalysisService {
                         })
                 ));
 
-        redisTemplate.opsForValue().set(key, result, Duration.ofMinutes(30));
+        objectRedisTemplate.opsForValue().set(key, result, Duration.ofMinutes(30));
+        sw.stop();
+        log.info("📦 [Redis MISS → DB 조회] 카테고리 요약 응답 시간: {} ms", sw.getTotalTimeMillis());
+
         return result;
     }
 
     public void increaseItemUsage(String itemName, long quantity) {
         Long managementId = getManagementIdFromToken();
-        redisTemplate.opsForZSet().incrementScore(getItemUsageKey(managementId), itemName, quantity);
+        objectRedisTemplate.opsForZSet().incrementScore(getItemUsageKey(managementId), itemName, quantity);
     }
 
     public List<ItemUsageFrequencyDTO> getItemUsageRanking(int topN) {
-        Long managementId = getManagementIdFromToken();
-        Set<ZSetOperations.TypedTuple<Object>> zset =
-                redisTemplate.opsForZSet().reverseRangeWithScores(getItemUsageKey(managementId), 0, topN - 1);
+        StopWatch sw = new StopWatch();
+        sw.start();
 
-        if (zset == null) return Collections.emptyList();
+        Long managementId = getManagementIdFromToken();
+        String redisKey = getItemUsageKey(managementId);
+
+        Set<ZSetOperations.TypedTuple<String>> zset =
+                stringRedisTemplate.opsForZSet().reverseRangeWithScores(redisKey, 0, topN - 1);
+
+        sw.stop();
+        log.info("📊 [Redis HIT] 품목 사용 빈도 조회 응답 시간: {} ms", sw.getTotalTimeMillis());
+
+        if (zset == null || zset.isEmpty()) return Collections.emptyList();
 
         return zset.stream()
                 .map(tuple -> new ItemUsageFrequencyDTO(
-                        (String) tuple.getValue(),
+                        tuple.getValue(),
                         tuple.getScore() != null ? tuple.getScore().longValue() : 0
                 ))
                 .collect(Collectors.toList());
     }
 
     public List<MonthlyInventoryDTO> getMonthlyInventorySummary(int year) {
+        StopWatch sw = new StopWatch();
+        sw.start();
+
         Long managementId = getManagementIdFromToken();
         LocalDateTime start = LocalDate.of(year, 1, 1).atStartOfDay();
         LocalDateTime end = LocalDate.of(year, 12, 31).atTime(23, 59, 59);
@@ -128,7 +157,7 @@ public class InventoryAnalysisService {
                         o -> YearMonth.from(o.getCreatedAt()),
                         Collectors.summingLong(InventoryOut::getQuantity)));
 
-        return IntStream.rangeClosed(1, 12)
+        List<MonthlyInventoryDTO> result = IntStream.rangeClosed(1, 12)
                 .mapToObj(month -> {
                     YearMonth ym = YearMonth.of(year, month);
                     return new MonthlyInventoryDTO(
@@ -137,11 +166,22 @@ public class InventoryAnalysisService {
                             outboundMap.getOrDefault(ym, 0L)
                     );
                 }).collect(Collectors.toList());
+
+        sw.stop();
+        log.info("📊 월별 입출고 요약 응답 시간: {} ms", sw.getTotalTimeMillis());
+
+        return result;
     }
 
     public Map<Outbound, Long> getCachedOutboundSummary() {
+        StopWatch sw = new StopWatch();
+        sw.start();
         Long managementId = getManagementIdFromToken();
-        Map<Object, Object> entries = redisTemplate.opsForHash().entries(getOutboundKey(managementId));
+        Map<Object, Object> entries = objectRedisTemplate.opsForHash().entries(getOutboundKey(managementId));
+
+        sw.stop();
+        log.info("📦 [Redis HIT] Outbound 상태 캐시 조회 응답 시간: {} ms", sw.getTotalTimeMillis());
+
         if (entries == null || entries.isEmpty()) return null;
 
         return entries.entrySet().stream()
@@ -152,6 +192,9 @@ public class InventoryAnalysisService {
     }
 
     public Map<Outbound, Long> loadAndCacheOutboundSummary() {
+        StopWatch sw = new StopWatch();
+        sw.start();
+
         Long managementId = getManagementIdFromToken();
         List<Object[]> results = itemInstanceRepository.countAllByOutboundGroupAndManagementIdAndStatus(managementId,Status.ACTIVE);
 
@@ -167,16 +210,24 @@ public class InventoryAnalysisService {
                         e -> String.valueOf(e.getValue())
                 ));
 
-        redisTemplate.opsForHash().putAll(getOutboundKey(managementId), redisMap);
-        redisTemplate.expire(getOutboundKey(managementId), Duration.ofMinutes(10));
+        objectRedisTemplate.opsForHash().putAll(getOutboundKey(managementId), redisMap);
+        objectRedisTemplate.expire(getOutboundKey(managementId), Duration.ofMinutes(10));
+
+
+        sw.stop();
+        log.info("📦 [Redis MISS → DB 조회] Outbound 상태 통계 캐시 적재 응답 시간: {} ms", sw.getTotalTimeMillis());
+
         return mapped;
     }
 
     public void clearCategoryCache() {
-        redisTemplate.delete(getCategorySummaryKey(getManagementIdFromToken()));
+        objectRedisTemplate.delete(getCategorySummaryKey(getManagementIdFromToken()));
     }
 
     public void clearGlobalOutboundCache() {
-        redisTemplate.delete(getOutboundKey(getManagementIdFromToken()));
+        objectRedisTemplate.delete(getOutboundKey(getManagementIdFromToken()));
+    }
+    public void clearItemUsageCache() {
+        stringRedisTemplate.delete(getItemUsageKey(getManagementIdFromToken()));
     }
 }
