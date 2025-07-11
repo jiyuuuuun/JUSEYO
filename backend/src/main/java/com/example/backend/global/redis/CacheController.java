@@ -17,6 +17,26 @@ public class CacheController {
     @DeleteMapping("/category-summary")
     public ResponseEntity<String> clearCategoryCache() {
         analysisService.clearCategoryCache();
-        return ResponseEntity.ok("카테고리 캐시 삭제 완료");
+        return ResponseEntity.ok("✅ 카테고리 캐시 삭제 완료");
+    }
+
+    @DeleteMapping("/outbound-summary")
+    public ResponseEntity<String> clearOutboundCache() {
+        analysisService.clearGlobalOutboundCache();
+        return ResponseEntity.ok("✅ Outbound 상태 캐시 삭제 완료");
+    }
+
+    @DeleteMapping("/item-usage")
+    public ResponseEntity<String> clearItemUsageCache() {
+        analysisService.clearItemUsageCache();
+        return ResponseEntity.ok("✅ 품목 사용 빈도 캐시 삭제 완료");
+    }
+
+    @DeleteMapping("/all")
+    public ResponseEntity<String> clearAllCaches() {
+        analysisService.clearCategoryCache();
+        analysisService.clearItemUsageCache();
+        analysisService.clearGlobalOutboundCache();
+        return ResponseEntity.ok("✅ 전체 캐시 삭제 완료");
     }
 }

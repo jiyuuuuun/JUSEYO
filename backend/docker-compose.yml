@@ -1,4 +1,3 @@
-version: '3' # Docker Compose 버전 명시
 
 services:
   mysql:
@@ -13,7 +12,7 @@ services:
     ports:
       - "3307:3306"              # 호스트 포트 3307 -> 컨테이너 포트 3306 매핑
     volumes:
-      - mysql-data:/var/lib/mysql # 데이터 지속성을 위한 볼륨 설정
+      - juseyo-mysql-data:/var/lib/mysql # 데이터 지속성을 위한 볼륨 설정
     healthcheck:                  # 헬스체크 추가 (MySQL 상태 확인)
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 10s
@@ -29,7 +28,7 @@ services:
     ports:
       - "6379:6379"
     volumes:
-      - redis-data:/data
+      - juseyo-redis-data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -51,8 +50,8 @@ services:
 
 
 volumes:
-  mysql-data:
-  redis-data:
+  juseyo-mysql-data:
+  juseyo-redis-data:
 
 networks:
   juseyo-network:

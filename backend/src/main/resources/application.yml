@@ -37,17 +37,17 @@ spring:
         enabled: true
 
 recommend:
-  flask-url: http://api.jusey0.site:5000/
+  flask-url: http://localhost:5000/
 
 
 
 logging:
   level:
-    com.ll.blog: DEBUG
-    org.hibernate.SQL: DEBUG
-    org.hibernate.orm.jdbc.bind: TRACE
-    org.hibernate.orm.jdbc.extract: TRACE
-    org.springframework.transaction.interceptor: TRACE
+    com.ll.blog: INFO
+    org.hibernate.SQL: INFO
+    org.hibernate.orm.jdbc.bind: INFO
+    org.hibernate.orm.jdbc.extract: INFO
+    org.springframework.transaction.interceptor: INFO
 custom:
   dev:
     cookieDomain: localhost
