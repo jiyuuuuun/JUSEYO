@@ -89,6 +89,11 @@ dependencies {
     //누리고
     implementation("net.nurigo:sdk:4.2.7") // 누리고 SDK
 
+
+    //redisson
+    implementation("org.redisson:redisson-spring-boot-starter:3.23.1")
+
+
 }
 
 
