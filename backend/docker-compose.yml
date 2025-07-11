@@ -51,8 +51,8 @@ services:
 
 
 volumes:
-  mysql-data:
-  redis-data:
+  juseyo-mysql-data:
+  juseyo-redis-data:
 
 networks:
   juseyo-network:
